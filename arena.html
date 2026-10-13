@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Stack Rival Arena</title>
+<style>
+:root{--bg:#0d1021;--panel:#161b34;--line:#2b335e;--fg:#e9ecf8;--muted:#8c93ba;--accent:#ffb43a;--good:#6be39a;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;padding:max(12px,env(safe-area-inset-top)) 16px 40px}
+.app{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+h1{margin:0;font:900 28px/1 "Arial Narrow",Impact,sans-serif;letter-spacing:.06em}h1 span{color:var(--accent)}
+.bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.btn{font:800 14px/1 "Arial Narrow",Impact,sans-serif;letter-spacing:.08em;text-transform:uppercase;padding:10px 14px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--fg);cursor:pointer}
+.btn.primary{background:var(--accent);color:#2a1900;border-color:var(--accent)}
+.chip{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--muted)}
+.score{font:900 26px "Arial Narrow",Impact,sans-serif;letter-spacing:.05em;margin-left:auto}
+#banner{min-height:28px;font:900 22px "Arial Narrow",Impact,sans-serif;letter-spacing:.06em;color:var(--accent);text-transform:uppercase}
+.arena{display:flex;gap:20px;justify-content:center;flex-wrap:wrap}
+.side{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;align-items:center}
+.side .info{font:12px ui-monospace,Menlo,monospace;color:var(--muted)}
+.side .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:center}
+.side label.sl{display:flex;gap:6px;align-items:center;font:12px ui-monospace,monospace;color:var(--muted)}
+.stats{font:12px ui-monospace,monospace;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.stats b{color:var(--fg)}
+.last{font:800 14px "Arial Narrow",Impact,sans-serif;letter-spacing:.06em;min-height:20px;color:var(--accent)}
+canvas{max-width:100%}
+.hint{font-size:13px;color:var(--muted);margin:0}
+</style></head><body>
+<div class="app">
+  <div class="bar"><h1>STACK <span>ARENA</span></h1>
+    <button class="btn primary" id="bStart">Start match</button>
+    <button class="btn" id="bPause">Pause</button>
+    <button class="btn" id="bReset">Reset score</button>
+    <label class="chip"><input type="checkbox" id="oAuto"> Auto rematch</label>
+    <label class="chip"><input type="checkbox" id="oMini" checked> All-mini spins</label>
+    <label class="chip"><input type="checkbox" id="oApp"> APP-only reward</label>
+    <div class="score" id="score"></div></div>
+  <div id="banner"></div>
+  <div class="arena" id="arena"></div>
+  <p class="hint">Load a brain backup (.json from Stack Rival's "Back up brain") into each side, or use the starter brain. Bots don't learn here; this is a pure match. After 60s both sides receive growing garbage so matches always end.</p>
+</div>
+<script>
+function ENGINE(){
+  const W=10,H=40,VIS=20,TOP=H-VIS,FULL=(1<<W)-1,SPY=TOP-2;
+  const SIZE=[0,4,3,3,2,3,3,3];
+  const BASE=[null,[[0,1],[1,1],[2,1],[3,1]],[[0,0],[0,1],[1,1],[2,1]],[[2,0],[0,1],[1,1],[2,1]],[[0,0],[1,0],[0,1],[1,1]],[[1,0],[2,0],[0,1],[1,1]],[[1,0],[0,1],[1,1],[2,1]],[[0,0],[1,0],[1,1],[2,1]]];
+  const SH=[null];
+  for(let id=1;id<=7;id++){const n=SIZE[id];let c=BASE[id];const rots=[];for(let r=0;r<4;r++){rots.push(Int8Array.from([].concat(...c)));c=c.map(p=>[n-1-p[1],p[0]]);}SH.push(rots);}
+  const SPX=[0,3,3,3,4,3,3,3];
+  // SRS kick tables (dx, dy-up): standard SRS for rotations, SRS+ style table for 180s
+  const KJ={'01':[[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],'10':[[0,0],[1,0],[1,-1],[0,2],[1,2]],'12':[[0,0],[1,0],[1,-1],[0,2],[1,2]],'21':[[0,0],[-1,0],[-1,1],[0,-2],[-1,-2]],'23':[[0,0],[1,0],[1,1],[0,-2],[1,-2]],'32':[[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],'30':[[0,0],[-1,0],[-1,-1],[0,2],[-1,2]],'03':[[0,0],[1,0],[1,1],[0,-2],[1,-2]]};
+  const KI={'01':[[0,0],[-2,0],[1,0],[-2,-1],[1,2]],'10':[[0,0],[2,0],[-1,0],[2,1],[-1,-2]],'12':[[0,0],[-1,0],[2,0],[-1,2],[2,-1]],'21':[[0,0],[1,0],[-2,0],[1,-2],[-2,1]],'23':[[0,0],[2,0],[-1,0],[2,1],[-1,-2]],'32':[[0,0],[-2,0],[1,0],[-2,-1],[1,2]],'30':[[0,0],[1,0],[-2,0],[1,-2],[-2,1]],'03':[[0,0],[-1,0],[2,0],[-1,2],[2,-1]]};
+  const K180={'02':[[0,0],[0,1],[1,1],[-1,1],[1,0],[-1,0]],'13':[[0,0],[1,0],[1,2],[1,1],[0,2],[0,1]],'20':[[0,0],[0,-1],[-1,-1],[1,-1],[-1,0],[1,0]],'31':[[0,0],[-1,0],[-1,2],[-1,1],[0,2],[0,1]]};
+  const KT=[null];
+  for(let id=1;id<=7;id++){const a=[];for(let f=0;f<4;f++){const o=[];for(const d of [1,2,3]){const t=(f+d)&3,k=''+f+t;const tb=id===4?[[0,0]]:d===2?K180[k]:id===1?KI[k]:KJ[k];o[d]=Int8Array.from([].concat(...tb.map(p=>[p[0],-p[1]])));}a.push(o);}KT.push(a);}
+  const POP=new Uint8Array(4096);for(let i=1;i<4096;i++)POP[i]=POP[i>>1]+(i&1);
+
+  function collide(b,id,r,x,y){const s=SH[id][r];for(let i=0;i<8;i+=2){const X=x+s[i],Y=y+s[i+1];if(X<0||X>=W||Y>=H)return true;if(Y>=0&&(b[Y]>>X)&1)return true;}return false;}
+  const RR=[0,0,0,0];
+  function rotate(b,id,r,x,y,d){const to=(r+d)&3,k=KT[id][r][d];for(let i=0;i<k.length;i+=2){const nx=x+k[i],ny=y+k[i+1];if(!collide(b,id,to,nx,ny)){RR[0]=nx;RR[1]=ny;RR[2]=to;RR[3]=i>>1;return true;}}return false;}
+  function occ(b,x,y){return(x<0||x>=W||y>=H)?1:(y<0?0:(b[y]>>x)&1);}
+  // 0 none, 1 mini, 2 full
+  function spinOf(b,id,r,x,y,rotated,tst,allMini){
+    if(!rotated||id===4)return 0;
+    if(id===6){
+      const a=occ(b,x,y),c=occ(b,x+2,y),d=occ(b,x,y+2),e=occ(b,x+2,y+2);
+      if(a+c+d+e<3)return 0; // T spins use the 3-corner rule only
+      let f1,f2;if(r===0){f1=a;f2=c}else if(r===1){f1=c;f2=e}else if(r===2){f1=d;f2=e}else{f1=a;f2=d}
+      return (f1&&f2)||tst?2:1; // both front corners, or the 5th kick, makes it full
+    }
+    if(collide(b,id,r,x-1,y)&&collide(b,id,r,x+1,y)&&collide(b,id,r,x,y-1)&&collide(b,id,r,x,y+1))return allMini?1:2;
+    return 0;
+  }
+  const SPINA=[0,2,4,6,10],NORMA=[0,0,1,2,4],CT=[0,0,1,1,1,2,2,3,3,4,4,4,5];
+  const AO=[0,0,0];
+  function attackOf(lines,spin,b2b,combo,pc){
+    let atk,diff;
+    if(spin===2){atk=SPINA[lines];diff=true}else if(spin===1){atk=NORMA[lines];diff=true}else{atk=NORMA[lines];diff=lines===4}
+    const nb=diff?b2b+1:-1;if(diff&&nb>=1)atk+=1;
+    const nc=combo+1;atk+=CT[nc<12?nc:12];
+    if(pc)atk+=10;
+    AO[0]=atk;AO[1]=nb;AO[2]=nc;return AO;
+  }
+  function clearLines(b){let w=H-1,n=0;for(let r=H-1;r>=0;r--){const row=b[r];if(row===FULL){n++;continue}b[w--]=row}while(w>=0)b[w--]=0;return n}
+  function addGarbage(b,n,hole){let over=false;for(let i=0;i<n;i++)if(b[i])over=true;b.copyWithin(0,n);const row=FULL&~(1<<hole);for(let i=H-n;i<H;i++)b[i]=row;return over}
+
+  /* ---- evaluation ---- */
+  const KEYS=['holes','holeDepth','bump','bump2','avgH','maxH','danger','rowTrans','colTrans','well','extraWells','tslot','clear1','clear2','clear3','clear4','tspin','mini','allspin','attack','b2b','combo','pc'];
+  const DEF=[-4,-0.8,-0.4,-0.05,-0.2,-0.2,-2,-0.35,-0.5,1.2,-0.6,5,-2.5,-2,-1.2,7,7,0.2,2,2.5,5,0.6,15];
+  function tslotOf(b,top){
+    let best=0;const y0=top-3>0?top-3:0;
+    for(let by=y0;by<=H-3;by++)for(let bx=0;bx<=W-3;bx++){
+      if(occ(b,bx,by+1)||occ(b,bx+1,by+1)||occ(b,bx+2,by+1)||occ(b,bx+1,by+2)||occ(b,bx+1,by))continue;
+      const c00=occ(b,bx,by),c20=occ(b,bx+2,by);
+      if(c00+c20!==1)continue;
+      if(!occ(b,bx,by+2)||!occ(b,bx+2,by+2))continue;
+      const ox=c00?bx+2:bx;let open=true;
+      for(let y=by-1;y>=0&&y>=top-1;y--){if(occ(b,ox,y)||occ(b,bx+1,y)){open=false;break}}
+      if(!open)continue;
+      const ra=b[by+1]|(7<<bx),rb=b[by+2]|(2<<bx);
+      let l=(ra===FULL?1:0)+(rb===FULL?1:0);
+      if(!l&&POP[ra]>=8)l=0.4;
+      if(l>best){best=l;if(best===2)return 2}
+    }
+    return best;
+  }
+  const hh=new Int32Array(W),cc=new Int32Array(W);
+  function boardValue(b,w){
+    let top=0;while(top<H&&b[top]===0)top++;
+    hh.fill(0);cc.fill(0);
+    let holes=0,hd=0,rt=0,ct=0,cover=0;
+    for(let r=top;r<H;r++){
+      const row=b[r];const hb=cover&~row;
+      if(hb){for(let x=0;x<W;x++)if((hb>>x)&1){holes++;hd+=cc[x]<6?cc[x]:6}}
+      if(row){for(let x=0;x<W;x++)if((row>>x)&1){if(!hh[x])hh[x]=H-r;cc[x]++}}
+      cover|=row;
+      const v=(row<<1)|1|(1<<(W+1));rt+=POP[(v^(v>>1))&0x7FF];
+      ct+=r<H-1?POP[row^b[r+1]]:POP[(~row)&FULL];
+    }
+    let sum=0,mx=0;for(let x=0;x<W;x++){sum+=hh[x];if(hh[x]>mx)mx=hh[x]}
+    let mw=0,wx=-1,ws=0;
+    for(let x=0;x<W;x++){const l=x?hh[x-1]:99,rr=x<W-1?hh[x+1]:99;const d=(l<rr?l:rr)-hh[x];if(d>0){if(d>mw){mw=d;wx=x}if(d>=2)ws+=d}}
+    const extra=ws-(mw>=2?mw:0);
+    let bump=0,b2=0,prev=-1;
+    for(let x=0;x<W;x++){if(x===wx&&mw>=2)continue;if(prev>=0){const d=hh[x]-hh[prev];bump+=d<0?-d:d;b2+=d*d}prev=x}
+    const dg=mx>10?(mx-10)*(mx-10):0;
+    const ts=w[11]!==0?tslotOf(b,top):0;
+    return w[0]*holes+w[1]*hd+w[2]*bump+w[3]*b2+w[4]*sum/W+w[5]*mx+w[6]*dg*0.25+w[7]*rt+w[8]*ct+w[9]*(mw<5?mw:5)+w[10]*extra+w[11]*ts;
+  }
+
+  /* ---- placement search: BFS over every reachable state, tucks and spins included ---- */
+  const NX=16,NY=H+8,NV=3,NS=4*NY*NX*NV;
+  const vis=new Uint32Array(NS),par=new Int32Array(NS),mvs=new Int8Array(NS),Q=new Int32Array(NS);
+  let stamp=0;
+  const cells=new Int32Array(4);
+  function search(b,id,tucks,allMini){
+    stamp++;
+    const out=[],seen=new Set(),sh=SH[id],x0=SPX[id];
+    if(collide(b,id,0,x0,SPY))return out;
+    let head=0,tail=0;
+    function visit(x,y,r,v,p,m){if(y<-4||y>=H+4)return;const s=((r*NY+y+4)*NX+x+3)*NV+v;if(vis[s]===stamp)return;vis[s]=stamp;par[s]=p;mvs[s]=m;Q[tail++]=s}
+    function addFinal(x,y,r,v,s){
+      const spin=tucks?spinOf(b,id,r,x,y,v>0,v===2,allMini):0;
+      const k=sh[r];
+      for(let i=0;i<4;i++)cells[i]=(y+k[i*2+1]+8)*W+x+k[i*2];
+      cells.sort();
+      const kk=(((cells[0]*512+cells[1])*512+cells[2])*512+cells[3])*3+spin;
+      if(seen.has(kk))return;seen.add(kk);
+      out.push({x,y,r,v,spin,s});
+    }
+    visit(x0,SPY,0,0,-1,-1);
+    while(head<tail){
+      const s=Q[head++];const v=s%NV;let t=(s-v)/NV;const xi=t%NX;t=(t-xi)/NX;const yi=t%NY;const r=(t-yi)/NY;const x=xi-3,y=yi-4;
+      if(tucks){if(collide(b,id,r,x,y+1))addFinal(x,y,r,v,s)}
+      else{let yy=y;while(!collide(b,id,r,x,yy+1))yy++;addFinal(x,yy,r,0,s)}
+      if(!collide(b,id,r,x-1,y))visit(x-1,y,r,0,s,0);
+      if(!collide(b,id,r,x+1,y))visit(x+1,y,r,0,s,1);
+      if(tucks&&!collide(b,id,r,x,y+1))visit(x,y+1,r,0,s,2);
+      if(id!==4){for(let d=1;d<=3;d++){if(rotate(b,id,r,x,y,d)){const vv=tucks?((d!==2&&RR[3]===4)?2:1):0;visit(RR[0],RR[1],RR[2],vv,s,d===1?3:d===3?4:5)}}}
+    }
+    return out;
+  }
+  function getPath(s){const m=[];while(par[s]!==-1){m.push(mvs[s]);s=par[s]}return m.reverse()}
+
+  function simulate(b,id,f,b2b,combo,next){
+    const nb=new Int32Array(b),k=SH[id][f.r];let above=true,dead=false;
+    for(let i=0;i<8;i+=2){const X=f.x+k[i],Y=f.y+k[i+1];if(Y<0){dead=true;continue}nb[Y]|=1<<X;if(Y>=TOP)above=false}
+    if(above)dead=true;
+    const lines=clearLines(nb),pc=lines>0&&nb[H-1]===0;
+    let atk=0,b2=b2b,co=-1;
+    if(lines){attackOf(lines,f.spin,b2b,combo,pc);atk=AO[0];b2=AO[1];co=AO[2]}
+    if(!dead&&next&&collide(nb,next,0,SPX[next],SPY))dead=true;
+    return{nb,lines,spin:f.spin,atk,b2b:b2,combo:co,pc,dead};
+  }
+  const ATK_R=2.5;
+  function reward(res,id,w,prevB2b,appOnly){
+    if(res.dead)return -1e9;
+    if(appOnly)return res.atk*ATK_R;
+    let r=0;const L=res.lines;
+    if(L){if(res.spin===2)r+=(id===6?w[16]:w[18])*L;else if(res.spin===1)r+=w[17]*L;else r+=w[11+L]}
+    r+=w[19]*res.atk+(res.b2b>=0?w[20]:0)+w[21]*(res.combo>0?res.combo:0)+(res.pc?w[22]:0);
+    if(prevB2b>=1&&L&&res.b2b<0){
+      const keepBias=Math.max(2,Math.abs(w[20])*1.2);
+      r-=keepBias+Math.min(prevB2b,6)*0.35;
+    }
+    return r;
+  }
+  function gauss(rnd){let u=0;while(u===0)u=rnd();const v=rnd();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
+  function plan(st,w,o){
+    const opts=[];
+    const tryPiece=(id,useHold)=>{
+      const next=(useHold&&!st.hold)?st.queue[1]:st.queue[0];
+      const fs=search(st.board,id,o.tucks,o.allMini);
+      for(const f of fs){const res=simulate(st.board,id,f,st.b2b,st.combo,next);const rw=reward(res,id,w,st.b2b,o.appOnly);const sc=res.dead?-1e9:rw+boardValue(res.nb,w);opts.push({id,useHold,f,res,rw,sc,next})}
+    };
+    tryPiece(st.cur,false);
+    if(o.useHold&&st.canHold){const alt=st.hold||st.queue[0];if(alt&&alt!==st.cur)tryPiece(alt,true)}
+    if(!opts.length)return null;
+    opts.sort((a,b)=>b.sc-a.sc);
+    let pool=opts;
+    if(o.look>0){
+      pool=opts.slice(0,Math.min(o.look,opts.length));
+      for(const op of pool){
+        if(op.res.dead||!op.next)continue;
+        const fs2=search(op.res.nb,op.next,o.tucks,o.allMini);let best=-1e9;
+        for(const f2 of fs2){const r2=simulate(op.res.nb,op.next,f2,op.res.b2b,op.res.combo,0);if(r2.dead)continue;const v=reward(r2,op.next,w,op.res.b2b,o.appOnly)+boardValue(r2.nb,w);if(v>best)best=v}
+        op.sc=best>-1e9?op.rw+best:-1e9;
+      }
+      pool.sort((a,b)=>b.sc-a.sc);
+    }
+    const rnd=o.rng||Math.random;
+    if(o.noise>0){for(const op of pool)if(op.sc>-1e8)op.sc+=gauss(rnd)*o.noise;pool.sort((a,b)=>b.sc-a.sc)}
+    if(o.mistake>0&&rnd()<o.mistake){const alive=pool.filter(p=>p.sc>-1e8).slice(0,6);if(alive.length)return alive[Math.floor(rnd()*alive.length)]}
+    return pool[0];
+  }
+
+  /* ---- self-play training ---- */
+  function rng32(seed){let a=seed>>>0;return function(){a=(a+0x6D2B79F5)|0;let t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296}}
+  function Bag(seed){const r=rng32(seed);let bag=[];return function(){if(!bag.length){bag=[1,2,3,4,5,6,7];for(let i=6;i>0;i--){const j=Math.floor(r()*(i+1));const t=bag[i];bag[i]=bag[j];bag[j]=t}}return bag.pop()}}
+  function playSim(w,seed,pieces,allMini,appOnly){
+    const bag=Bag(seed),gr=rng32(seed^0x9e3779b9);
+    const st={board:new Int32Array(H),cur:0,hold:0,queue:[],b2b:-1,combo:-1,canHold:true};
+    for(let i=0;i<6;i++)st.queue.push(bag());
+    let sent=0,gross=0,pending=0,placed=0,died=false,hole=Math.floor(gr()*W);
+    const o={tucks:true,useHold:true,look:0,noise:0,mistake:0,allMini,appOnly};
+    for(;placed<pieces;placed++){
+      st.cur=st.queue.shift();st.queue.push(bag());st.canHold=true;
+      if(collide(st.board,st.cur,0,SPX[st.cur],SPY)){died=true;break}
+      const c=plan(st,w,o);if(!c||c.res.dead){died=true;break}
+      if(c.useHold){if(st.hold){const t=st.hold;st.hold=st.cur;st.cur=t}else{st.hold=st.cur;st.cur=st.queue.shift();st.queue.push(bag())}}
+      st.board=c.res.nb;st.b2b=c.res.b2b;st.combo=c.res.combo;
+      let atk=c.res.atk;gross+=atk;const cancel=Math.min(atk,pending);pending-=cancel;atk-=cancel;sent+=atk;
+      if(c.res.lines===0&&pending>0){const n=Math.min(pending,8);pending-=n;if(addGarbage(st.board,n,hole)){died=true;break}if(gr()<0.3)hole=Math.floor(gr()*W)}
+      if(placed%5===4){const q=gr();pending+=q<0.35?0:q<0.6?1:q<0.8?2:q<0.93?3:4}
+    }
+    return{sent,placed,died,gross,app:gross/Math.max(1,placed)};
+  }
+  function trainGen(mean,sigma,seed,allMini,pop,pieces,appOnly){
+    const rnd=rng32(seed),n=KEYS.length,res=[];let z=null;
+    for(let k=0;k<pop;k++){
+      const w=new Float64Array(n);
+      if(k===0)for(let i=0;i<n;i++)w[i]=mean[i];
+      else{
+        if(k%2===1){z=new Float64Array(n);for(let i=0;i<n;i++)z[i]=gauss(rnd)}
+        const sg=k%2===1?1:-1;
+        for(let i=0;i<n;i++)w[i]=mean[i]+sg*sigma[i]*z[i];
+      }
+      const g1=playSim(w,seed,pieces,allMini,appOnly),g2=playSim(w,seed+101,pieces,allMini,appOnly);
+      const fit=(appOnly?(g1.gross+g2.gross)/pieces*100:g1.sent+g2.sent+(g1.placed+g2.placed)*0.05)-(g1.died?30:0)-(g2.died?30:0);
+      res.push({w,fit,app:(g1.app+g2.app)/2,died:g1.died||g2.died,k});
+    }
+    const base=res[0];
+    res.sort((a,b)=>b.fit-a.fit);
+    const EL=3,RW=[0.5,0.3,0.2],nm=new Array(n),ns=new Array(n);
+    for(let i=0;i<n;i++){
+      let m=0;for(let e=0;e<EL;e++)m+=res[e].w[i]*RW[e];
+      let v=0;for(let e=0;e<EL;e++){const d=res[e].w[i]-m;v+=RW[e]*d*d}
+      const sd=Math.sqrt(v);
+      nm[i]=0.6*mean[i]+0.4*m;
+      const mag=Math.max(0.15,Math.abs(mean[i]),Math.abs(m));
+      const fl=0.02+0.03*mag,cap=0.28+0.62*mag;
+      ns[i]=Math.min(cap,Math.max(fl,0.84*sigma[i]+0.22*sd));
+    }
+    let eliteApp=0;for(let e=0;e<EL;e++)eliteApp+=res[e].app;eliteApp/=EL;
+    return{mean:nm,sigma:ns,baseApp:base.app,baseDied:base.died,eliteApp,bestApp:res[0].app};
+  }
+  function planPath(st,w,o){
+    st.board=Int32Array.from(st.board);
+    const c=plan(st,Float64Array.from(w),o);if(!c)return null;
+    const fs=search(st.board,c.id,o.tucks,o.allMini);
+    const f=fs.find(q=>q.x===c.f.x&&q.y===c.f.y&&q.r===c.f.r&&q.v===c.f.v);
+    return{useHold:c.useHold,id:c.id,f:{x:c.f.x,y:c.f.y,r:c.f.r,v:c.f.v},path:f?getPath(f.s):[]};
+  }
+  return{W,H,TOP,FULL,SPY,SH,SPX,collide,rotate,RR,spinOf,attackOf,AO,clearLines,addGarbage,search,getPath,plan,planPath,Bag,rng32,trainGen,playSim,KEYS,DEF,gauss};
+}
+const E=ENGINE();const {W,H,TOP,SPY,SH,SPX}=E;
+const COLORS=[null,'#41cfe0','#5274f4','#f2913a','#f4cf3d','#5fd15c','#b35ff0','#f04d5f','#5e6380'];
+const NAMES=['','I','J','L','O','S','T','Z'],WORD=['','SINGLE','DOUBLE','TRIPLE','QUAD'];
+const $=s=>document.querySelector(s);
+const O={allMini:true,appOnly:false,auto:false};
+const WSRC=`const E=(${ENGINE.toString()})();onmessage=e=>{const d=e.data;postMessage({token:d.token,res:E.planPath(d.st,d.w,d.o)})};`;
+const wurl=URL.createObjectURL(new Blob([WSRC],{type:'text/javascript'}));
+
+/* brains */
+const starter=n=>({name:n,mean:E.DEF.slice(),gen:0,appEma:null});
+function parseBrain(txt){
+  let o;try{o=JSON.parse(txt)}catch(e){throw new Error('Not valid JSON')}
+  const b=o&&o.bot?o.bot:o,n=E.KEYS.length;
+  if(!b||!Array.isArray(b.mean)||b.mean.length!==n||!b.mean.every(v=>typeof v==='number'&&isFinite(v)))throw new Error('Not a Stack Rival brain (need '+n+' weights)');
+  return{name:String(b.name||'BOT').toUpperCase().replace(/[^A-Z0-9 _-]/g,'').slice(0,10)||'BOT',mean:b.mean.slice(),gen:Math.max(0,Math.floor(+b.gen||0)),appEma:typeof b.appEma==='number'&&isFinite(b.appEma)?b.appEma:null};
+}
+function opts(b){
+  const g=b.gen,learn=b.appEma==null?0:Math.max(0,b.appEma);
+  return{tucks:true,useHold:true,look:g>=120||learn>=3?8:g>=40||learn>=2?7:6,noise:Math.max(0.08,1.4/Math.pow(1+g/18,0.85)),mistake:Math.max(0.001,0.06*Math.exp(-0.03*g)),allMini:O.allMini,appOnly:O.appOnly};
+}
+function autoPps(b){const l=b.appEma==null?0:Math.max(0,b.appEma);return Math.min(8.5,1.2+Math.pow(b.gen,0.62)*0.08+l*0.55)}
+
+/* one side of the arena */
+let T=0,press=0,mode='idle',cd=0,sides=[];
+class Side{
+  constructor(i){
+    this.i=i;this.brain=starter(i?'BETA':'ALPHA');this.pps=0;this.wins=0;this.token=0;
+    this.worker=new Worker(wurl);this.worker.onmessage=e=>this.onPlan(e.data);
+    this.cv=$('#cv'+i);this.reset(1);
+  }
+  reset(seed){
+    this.board=new Int32Array(H);this.col=new Uint8Array(W*H);
+    this.bag=E.Bag(seed);this.grng=E.rng32(seed^(this.i?0x5678:0x1234));
+    this.queue=[];this.fill();this.hold=0;this.canHold=true;this.cur=0;this.b2b=-1;this.combo=-1;
+    this.inc=[];this.dead=false;this.state='idle';this.token++;this.plan=null;this.timer=0;this.opp=null;
+    this.gHole=Math.floor(this.grng()*W);this.last='';
+    this.st={pieces:0,attack:0,lines:0};
+  }
+  fill(){while(this.queue.length<7)this.queue.push(this.bag())}
+  speed(){return this.pps>0?this.pps:autoPps(this.brain)}
+  spawn(){
+    this.cur=this.queue.shift();this.fill();this.canHold=true;
+    if(E.collide(this.board,this.cur,0,SPX[this.cur],SPY)){this.dead=true;return}
+    this.request();
+  }
+  request(){
+    this.state='thinking';const tok=++this.token;
+    const st={board:Array.from(this.board),cur:this.cur,hold:this.hold,queue:this.queue.slice(),b2b:this.b2b,combo:this.combo,canHold:this.canHold};
+    this.worker.postMessage({token:tok,st,w:Array.from(this.brain.mean),o:opts(this.brain)});
+  }
+  onPlan(d){
+    if(d.token!==this.token||this.state!=='thinking'||this.dead)return;
+    if(!d.res){this.dead=true;return}
+    this.plan=d.res;this.timer=0;this.state='wait';
+  }
+  tick(ms){
+    if(this.dead||this.state!=='wait')return;
+    this.timer+=ms;if(this.timer<1000/this.speed())return;
+    const r=this.plan,f=r.f;this.state='idle';
+    if(r.useHold){const id=this.cur;this.canHold=false;if(this.hold){this.cur=this.hold;this.hold=id}else{this.hold=id;this.cur=this.queue.shift();this.fill()}}
+    if(this.cur!==r.id||E.collide(this.board,this.cur,f.r,f.x,f.y)){this.request();return}
+    this.lock(this.cur,f);
+  }
+  lock(id,f){
+    const spin=E.spinOf(this.board,id,f.r,f.x,f.y,f.v>0,f.v===2,O.allMini);
+    const k=SH[id][f.r];let above=true;
+    for(let i=0;i<8;i+=2){const X=f.x+k[i],Y=f.y+k[i+1];if(Y<0){this.dead=true;return}this.board[Y]|=1<<X;this.col[Y*W+X]=id;if(Y>=TOP)above=false}
+    if(above){this.dead=true;return}
+    const lines=this.clear(),pc=lines>0&&this.board[H-1]===0,st=this.st;
+    st.pieces++;st.lines+=lines;
+    let atk=0;
+    if(lines){E.attackOf(lines,spin,this.b2b,this.combo,pc);atk=E.AO[0];this.b2b=E.AO[1];this.combo=E.AO[2]}else this.combo=-1;
+    if(lines){
+      const bits=[];
+      if(spin)bits.push(`${NAMES[id]}-SPIN${spin===1?' MINI':''}`);
+      bits.push(spin||lines<4?WORD[lines]:'QUAD');
+      if(this.b2b>=1)bits.push(`B2B ×${this.b2b}`);
+      if(this.combo>=1)bits.push(`${this.combo} COMBO`);
+      if(pc)bits.push('ALL CLEAR');
+      this.last=bits.join(' · ');
+    }
+    if(atk>0){st.attack+=atk;const left=this.cancel(atk);if(left>0&&this.opp&&!this.opp.dead)this.opp.inc.push({n:left,at:T+500})}
+    if(!lines)this.takeGarbage();
+    if(!this.dead)this.spawn();
+  }
+  clear(){
+    const b=this.board,cl=this.col;let w=H-1,n=0;
+    for(let r=H-1;r>=0;r--){if(b[r]===E.FULL){n++;continue}if(w!==r){b[w]=b[r];cl.copyWithin(w*W,r*W,r*W+W)}w--}
+    for(;w>=0;w--){b[w]=0;cl.fill(0,w*W,w*W+W)}
+    return n;
+  }
+  cancel(a){while(a>0&&this.inc.length){const g=this.inc[0],c=Math.min(a,g.n);g.n-=c;a-=c;if(!g.n)this.inc.shift()}return a}
+  takeGarbage(){
+    let cap=8,total=0;
+    while(cap>0&&this.inc.length&&this.inc[0].at<=T){const g=this.inc[0],n=Math.min(cap,g.n);total+=n;g.n-=n;cap-=n;if(!g.n)this.inc.shift()}
+    if(!total)return;
+    if(this.grng()<0.3)this.gHole=(this.gHole+1+Math.floor(this.grng()*(W-1)))%W;
+    const b=this.board,cl=this.col;let over=false;for(let i=0;i<total;i++)if(b[i])over=true;
+    b.copyWithin(0,total);cl.copyWithin(0,total*W);
+    const row=E.FULL&~(1<<this.gHole);
+    for(let r=H-total;r<H;r++){b[r]=row;for(let x=0;x<W;x++)cl[r*W+x]=x===this.gHole?0:8}
+    if(over)this.dead=true;
+  }
+}
+
+/* match flow */
+function startMatch(){
+  const seed=(Math.random()*2147483647)|0;
+  sides.forEach(s=>s.reset(seed));sides[0].opp=sides[1];sides[1].opp=sides[0];
+  T=0;press=0;mode='count';cd=1500;$('#banner').textContent='Get ready';$('#bPause').textContent='Pause';
+}
+function endMatch(){
+  mode='over';const [a,b]=sides;let t;
+  if(a.dead&&b.dead)t='Draw';else{const w=a.dead?b:a;w.wins++;t=`${w.brain.name} wins`}
+  $('#banner').textContent=t;renderScore();
+  if(O.auto)setTimeout(()=>{if(mode==='over')startMatch()},2500);
+}
+function update(dt){
+  if(mode==='count'){cd-=dt;if(cd<=0){mode='play';$('#banner').textContent='';sides.forEach(s=>s.spawn())}return}
+  if(mode!=='play')return;
+  T+=dt;
+  if(T>60000&&T-press>=5000){press=T;const n=1+Math.floor((T-60000)/30000);sides.forEach(s=>s.inc.push({n,at:T}))}
+  sides.forEach(s=>s.tick(dt));
+  if(sides[0].dead||sides[1].dead)endMatch();
+}
+
+/* UI */
+function buildPanels(){
+  $('#arena').innerHTML=[0,1].map(i=>`<section class="side"><div class="info" id="info${i}"></div>
+    <div class="row"><button class="btn" id="load${i}">Load brain</button><button class="btn" id="starter${i}">Starter</button><input type="file" id="file${i}" accept=".json,.txt,application/json,text/plain" hidden></div>
+    <label class="sl">Speed <input type="range" id="pps${i}" min="0" max="8.5" step="0.25" value="0"><output id="ppso${i}">Auto</output></label>
+    <canvas id="cv${i}"></canvas><div class="stats" id="st${i}"></div><div class="last" id="last${i}"></div></section>`).join('');
+  sides=[new Side(0),new Side(1)];
+  sides.forEach((s,i)=>{
+    $('#load'+i).onclick=()=>$('#file'+i).click();
+    $('#starter'+i).onclick=()=>{s.brain=starter(i?'BETA':'ALPHA');info()};
+    $('#file'+i).onchange=e=>{
+      const f=e.target.files&&e.target.files[0];if(!f)return;
+      const rd=new FileReader();
+      rd.onload=()=>{try{s.brain=parseBrain(String(rd.result));info()}catch(err){alert(err.message)}};
+      rd.readAsText(f);e.target.value='';
+    };
+    $('#pps'+i).oninput=e=>{s.pps=+e.target.value;info()};
+  });
+  info();renderScore();
+}
+function info(){sides.forEach((s,i)=>{
+  $('#info'+i).textContent=`${s.brain.name} · gen ${s.brain.gen} · ${s.speed().toFixed(2)} PPS`;
+  $('#ppso'+i).textContent=s.pps>0?s.pps+' PPS':'Auto';
+})}
+function renderScore(){$('#score').textContent=`${sides[0].brain.name} ${sides[0].wins} – ${sides[1].wins} ${sides[1].brain.name}`}
+$('#bStart').onclick=startMatch;
+$('#bPause').onclick=e=>{if(mode==='play'){mode='paused';e.target.textContent='Resume'}else if(mode==='paused'){mode='play';e.target.textContent='Pause'}};
+$('#bReset').onclick=()=>{sides.forEach(s=>s.wins=0);renderScore()};
+$('#oAuto').onchange=e=>{O.auto=e.target.checked};
+$('#oMini').onchange=e=>{O.allMini=e.target.checked};
+$('#oApp').onchange=e=>{O.appOnly=e.target.checked};
+
+/* rendering */
+function cell(x,px,py,s,c){x.fillStyle=COLORS[c];x.fillRect(px,py,s,s);x.fillStyle='rgba(255,255,255,.22)';x.fillRect(px,py,s,Math.max(1,s*.15));x.fillStyle='rgba(0,0,0,.28)';x.fillRect(px,py+s-Math.max(1,s*.15),s,Math.max(1,s*.15))}
+function mini(x,id,ox,oy,s,a){const k=SH[id][0];x.globalAlpha=a;for(let i=0;i<8;i+=2)cell(x,ox+k[i]*s,oy+k[i+1]*s,s,id);x.globalAlpha=1}
+function draw(s,cs){
+  const cv=s.cv,dpr=Math.min(2,window.devicePixelRatio||1),w=Math.round(20.5*cs),h=Math.round(22*cs);
+  if(cv._cs!==cs){cv.width=w*dpr;cv.height=h*dpr;cv.style.width=w+'px';cv.style.height=h+'px';cv._cs=cs}
+  const x=cv.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,w,h);
+  const bx=5*cs,by=cs;
+  x.fillStyle='#080a16';x.fillRect(bx,by,10*cs,20*cs);
+  x.strokeStyle='#131931';x.lineWidth=1;x.beginPath();
+  for(let i=1;i<10;i++){x.moveTo(bx+i*cs+.5,by);x.lineTo(bx+i*cs+.5,by+20*cs)}
+  for(let i=1;i<20;i++){x.moveTo(bx,by+i*cs+.5);x.lineTo(bx+10*cs,by+i*cs+.5)}
+  x.stroke();
+  let mh=0;
+  for(let Y=TOP;Y<H;Y++)for(let X=0;X<W;X++){const c=s.col[Y*W+X];if(c)cell(x,bx+X*cs,by+(Y-TOP)*cs,cs,s.dead?8:c)}
+  for(let r=0;r<H;r++)if(s.board[r]){mh=H-r;break}
+  if(s.state==='wait'&&s.plan&&!s.dead){const f=s.plan.f,k=SH[s.plan.id][f.r];x.globalAlpha=.45;for(let i=0;i<8;i+=2)cell(x,bx+(f.x+k[i])*cs,by+(f.y+k[i+1]-TOP)*cs,cs,s.plan.id);x.globalAlpha=1}
+  x.font=`800 ${Math.round(cs*.62)}px "Arial Narrow",Impact,sans-serif`;x.fillStyle='#8c93ba';x.textBaseline='alphabetic';
+  x.fillText('HOLD',.3*cs,by+.6*cs);x.fillText('NEXT',15.6*cs,by+.6*cs);
+  if(s.hold)mini(x,s.hold,.6*cs,by+1.2*cs,cs*.78,s.canHold?1:.3);
+  for(let i=0;i<5;i++)if(s.queue[i])mini(x,s.queue[i],15.8*cs,by+1.2*cs+i*2.8*cs,cs*.7,1);
+  let tot=0,ready=0;for(const g of s.inc){tot+=g.n;if(g.at<=T)ready+=g.n}
+  if(tot){const th=Math.min(20,tot)*cs,rh=Math.min(20,ready)*cs;x.fillStyle='#ffb43a';x.fillRect(4.5*cs,by+20*cs-th,.35*cs,th);x.fillStyle='#ff5468';x.fillRect(4.5*cs,by+20*cs-rh,.35*cs,rh)}
+  x.strokeStyle=mh>15?'#ff5468':'#2b335e';x.lineWidth=2;x.strokeRect(bx-1,by-1,10*cs+2,20*cs+2);
+  if(s.dead){x.fillStyle='rgba(8,10,22,.55)';x.fillRect(bx,by,10*cs,20*cs);x.fillStyle='#ff5468';x.textAlign='center';x.font=`900 ${Math.round(cs*1.2)}px "Arial Narrow",Impact,sans-serif`;x.fillText('TOPPED OUT',bx+5*cs,by+10*cs);x.textAlign='left'}
+}
+function statsHTML(s){const t=Math.max(.001,T/1000);return`<span>PPS <b>${(s.st.pieces/t).toFixed(2)}</b></span><span>APM <b>${(s.st.attack/t*60).toFixed(1)}</b></span><span>APP <b>${(s.st.attack/Math.max(1,s.st.pieces)).toFixed(2)}</b></span><span>ATK <b>${s.st.attack}</b></span><span>LINES <b>${s.st.lines}</b></span>`}
+let last=performance.now(),fn=0;
+function frame(ts){
+  const dt=Math.min(100,ts-last);last=ts;update(dt);
+  const cs=Math.max(12,Math.min(26,Math.floor(Math.min((innerWidth-72)/2,520)/20.5)));
+  sides.forEach(s=>draw(s,cs));
+  if(++fn%10===0)sides.forEach((s,i)=>{$('#st'+i).innerHTML=statsHTML(s);$('#last'+i).textContent=s.last});
+  requestAnimationFrame(frame);
+}
+buildPanels();
+if(typeof requestAnimationFrame==='function')requestAnimationFrame(frame);
+</script></body></html>
