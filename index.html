@@ -411,11 +411,15 @@ function ENGINE(){
     if(!dead&&next&&collide(nb,next,0,SPX[next],SPY))dead=true;
     return{nb,lines,spin:f.spin,atk,b2b:b2,combo:co,pc,dead};
   }
-  function reward(res,id,w){
+  function reward(res,id,w,prevB2b){
     if(res.dead)return -1e9;
     let r=0;const L=res.lines;
     if(L){if(res.spin===2)r+=(id===6?w[16]:w[18])*L;else if(res.spin===1)r+=w[17]*L;else r+=w[11+L]}
     r+=w[19]*res.atk+(res.b2b>=0?w[20]:0)+w[21]*(res.combo>0?res.combo:0)+(res.pc?w[22]:0);
+    if(prevB2b>=1&&L&&res.b2b<0){
+      const keepBias=Math.max(2,Math.abs(w[20])*1.2);
+      r-=keepBias+Math.min(prevB2b,6)*0.35;
+    }
     return r;
   }
   function gauss(rnd){let u=0;while(u===0)u=rnd();const v=rnd();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)}
@@ -424,7 +428,7 @@ function ENGINE(){
     const tryPiece=(id,useHold)=>{
       const next=(useHold&&!st.hold)?st.queue[1]:st.queue[0];
       const fs=search(st.board,id,o.tucks,o.allMini);
-      for(const f of fs){const res=simulate(st.board,id,f,st.b2b,st.combo,next);const rw=reward(res,id,w);const sc=res.dead?-1e9:rw+boardValue(res.nb,w);opts.push({id,useHold,f,res,rw,sc,next})}
+      for(const f of fs){const res=simulate(st.board,id,f,st.b2b,st.combo,next);const rw=reward(res,id,w,st.b2b);const sc=res.dead?-1e9:rw+boardValue(res.nb,w);opts.push({id,useHold,f,res,rw,sc,next})}
     };
     tryPiece(st.cur,false);
     if(o.useHold&&st.canHold){const alt=st.hold||st.queue[0];if(alt&&alt!==st.cur)tryPiece(alt,true)}
@@ -436,7 +440,7 @@ function ENGINE(){
       for(const op of pool){
         if(op.res.dead||!op.next)continue;
         const fs2=search(op.res.nb,op.next,o.tucks,o.allMini);let best=-1e9;
-        for(const f2 of fs2){const r2=simulate(op.res.nb,op.next,f2,op.res.b2b,op.res.combo,0);if(r2.dead)continue;const v=reward(r2,op.next,w)+boardValue(r2.nb,w);if(v>best)best=v}
+        for(const f2 of fs2){const r2=simulate(op.res.nb,op.next,f2,op.res.b2b,op.res.combo,0);if(r2.dead)continue;const v=reward(r2,op.next,w,op.res.b2b)+boardValue(r2.nb,w);if(v>best)best=v}
         op.sc=best>-1e9?op.rw+best:-1e9;
       }
       pool.sort((a,b)=>b.sc-a.sc);
