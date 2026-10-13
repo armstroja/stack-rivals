@@ -537,19 +537,24 @@ let botW=Float64Array.from(bot.mean);
 /* ---- rival progression ---- */
 const xpFor=L=>Math.round(12*Math.pow(L-1,1.8));
 function levelOf(xp){let L=1;while(xp>=xpFor(L+1))L++;return L}
-const UNLOCKS=[[5,'uses Hold'],[8,'learns tucks and every spin'],[20,'reads the next piece'],[35,'reads deeper and plans spins ahead']];
-function botOpts(L){
-  const t=Math.max(0,L-1);
+const UNLOCKS=[];
+function botOpts(){
+  const g=Math.max(0,bot.gen);
+  const learn=bot.appEma==null?0:Math.max(0,bot.appEma);
   return{
-    tucks:L>=8,
-    useHold:L>=5,
-    look:L>=55?7:L>=35?6:L>=20?3:0,
-    noise:Math.max(0.18,5/Math.pow(1+t/10,0.9)),
-    mistake:Math.max(0.01,0.3*Math.exp(-0.025*t)),
+    tucks:true,
+    useHold:true,
+    look:g>=120||learn>=3?8:g>=40||learn>=2?7:6,
+    noise:Math.max(0.08,1.4/Math.pow(1+g/18,0.85)),
+    mistake:Math.max(0.001,0.06*Math.exp(-0.03*g)),
     allMini:S.allMini
   }
 }
-function botPps(L){return S.botPps>0?S.botPps:0.45+(L-1)*0.055}
+function botPps(){
+  if(S.botPps>0)return S.botPps;
+  const g=Math.max(0,bot.gen),learn=bot.appEma==null?0:Math.max(0,bot.appEma);
+  return Math.min(8.5,1.2+Math.pow(g,0.62)*0.08+learn*0.55);
+}
 function tierOf(L){return L>=45?['Prism','#b9f0ff']:L>=30?['Gold','#ffb43a']:L>=15?['Silver','#c9d0e6']:['Bronze','#d08a54']}
 function styleOf(w){
   const k=E.KEYS,g=n=>w[k.indexOf(n)];
@@ -687,7 +692,7 @@ const bd={state:'idle',token:0,steps:[],i:0,t:0,int:0,target:null};
 let brain=mkWorker(e=>{if(e.data.cmd==='plan')onPlan(e.data.token,e.data.res)});
 if(brain)brain.onerror=()=>{brain=null;if(bd.state==='thinking')bd.state='idle'};
 function requestPlan(){
-  const p=game.bot,L=levelOf(bot.xp),o=botOpts(L);
+  const p=game.bot,o=botOpts();
   bd.state='thinking';bd.t=0;const tok=++bd.token;
   const st={board:Array.from(p.board),cur:p.cur.id,hold:p.hold,queue:p.queue.slice(),b2b:p.b2b,combo:p.combo,canHold:p.canHold};
   if(brain)brain.postMessage({cmd:'plan',token:tok,st,w:Array.from(botW),o});
@@ -702,7 +707,7 @@ function onPlan(tok,res){
     for(let j=0;j<m.length;){if(m[j]===2){let n=0;while(j<m.length&&m[j]===2){n++;j++}bd.steps.push({k:'down',n})}else{bd.steps.push({k:m[j]});j++}}
     if(bd.steps.length&&bd.steps[bd.steps.length-1].k==='down')bd.steps.pop();
   }
-  bd.int=1000/botPps(levelOf(bot.xp))/(bd.steps.length+1);
+  bd.int=1000/botPps()/(bd.steps.length+1);
   bd.state='acting';
 }
 function botTick(ms){
@@ -881,7 +886,7 @@ function showMenu(){
   ov.innerHTML=`<div class="ov-panel">
     <p class="eyebrow">Rival · ${n} · Lv ${L} ${tierOf(L)[0]}</p>
     <h2 class="ov-title">Out-stack ${n}. It learns from every loss.</h2>
-    <p class="ov-copy">${n} gains XP each match and each training run, like an amiibo. Higher levels unlock hold, tucks, spins and read-ahead. Every piece can spin: T, S, Z, L, J and I.</p>
+    <p class="ov-copy">${n} learns from every match and every training run. There are no level locks now: hold, tucks, spins and deeper read-ahead are always available and sharpen through learning.</p>
     <div class="ov-actions"><button class="btn primary big" data-go="vs">Fight ${n}</button><button class="btn big" data-go="practice">Practice solo</button></div>
     <div class="keys">${keyHints()}</div></div>`;
 }
@@ -919,8 +924,7 @@ $('#navSettings').onclick=()=>openSettings();
 let toastT=0;
 function toast(msg){const t=$('#toast');t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,3600)}
 function levelToast(a,b){
-  const un=UNLOCKS.filter(u=>u[0]>a&&u[0]<=b).map(u=>u[1]);
-  toast(`${bot.name} reached Lv ${b}${un.length?' and now '+un.join(', '):''}`);
+  toast(`${bot.name} reached Lv ${b}.`);
 }
 
 /* ---- training ---- */
@@ -970,15 +974,14 @@ function renderCard(){
   const ring=$('#ring');ring.style.strokeDasharray=CIRC;ring.style.strokeDashoffset=CIRC*(1-frac);ring.style.stroke=tc;
   const t=$('#tier');t.textContent=tn;t.style.color=tc;
   $('#xpFill').style.width=(frac*100).toFixed(1)+'%';$('#xpFill').style.background=tc;
-  $('#xpTxt').textContent=`${bot.xp-lo} / ${need} XP`;
+  $('#xpTxt').textContent=`Learning pace ${botPps().toFixed(2)} PPS · Gen ${bot.gen}`;
   if(document.activeElement!==$('#botName'))$('#botName').value=bot.name;
   $('#botWho').textContent=bot.name;$('#botLvTag').textContent=`Lv ${L}`;
   $('#fRec').textContent=`${bot.wins}–${bot.losses}`;
-  $('#fPps').textContent=`${botPps(L).toFixed(2)} PPS`;
+  $('#fPps').textContent=`${botPps().toFixed(2)} PPS`;
   $('#fGen').textContent=bot.gen;
   $('#fStyle').textContent=L<8?'Beginner':styleOf(bot.mean);
-  const nx=UNLOCKS.find(u=>u[0]>L);
-  $('#unlock').innerHTML=nx?`Next: at <b>Lv ${nx[0]}</b> ${esc(bot.name)} ${nx[1]}.`:`${esc(bot.name)} has unlocked everything. Training keeps sharpening its brain.`;
+  $('#unlock').innerHTML=`${esc(bot.name)} has no XP gates. Keep playing to teach style; keep training to push speed and consistency.`;
   $('#appTxt').textContent=bot.appEma==null?'–':bot.appEma.toFixed(2);
   $('#btnTrain').textContent=training?'Stop training':'Start training';
   $('#btnTrain').classList.toggle('primary',!training);
@@ -1084,7 +1087,7 @@ function syncSlider(o){for(const pre of ['s','q']){const i=document.getElementBy
 function wireSlider(o,pre){const i=document.getElementById(pre+'-'+o.k);i.oninput=()=>{S[o.k]=+i.value;syncSlider(o);save();if(o.k==='botPps')renderCard()};i.addEventListener('keydown',e=>e.stopPropagation());if(pre==='q')i.addEventListener('pointerup',()=>i.blur())}
 function buildQuick(){$('#quick').innerHTML=SLIDERS.map(o=>sliderRow(o,S[o.k],'q')).join('');for(const o of SLIDERS)wireSlider(o,'q');wireToggles('q',$('#quickT'))}
 $('#hReset').onclick=()=>{for(const o of SLIDERS){S[o.k]=DEF_SET[o.k];syncSlider(o)}for(const t of TOGGLES)S[t.k]=DEF_SET[t.k];S.irs=DEF_SET.irs;syncToggles();save()};
-const BOTSL={k:'botPps',name:'Rival PPS',hint:'0 follows its level',min:0,max:5,step:0.25,fmt:v=>v>0?`${v} PPS`:`Auto · ${botPps(levelOf(bot.xp)).toFixed(2)}`};
+const BOTSL={k:'botPps',name:'Rival PPS',hint:'0 follows learning pace',min:0,max:8.5,step:0.25,fmt:v=>v>0?`${v} PPS`:`Auto · ${botPps().toFixed(2)}`};
 const GARB={k:'mess',name:'Garbage messiness',hint:'Chance the hole column moves on each delivery. 0 is pure cheese, 100 is a new column every time',min:0,max:100,step:5,fmt:v=>v+'%'};
 function buildSettings(){
   $('#sliders').innerHTML=SLIDERS.map(o=>sliderRow(o,S[o.k],'s')).join('');
