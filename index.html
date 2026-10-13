@@ -535,9 +535,19 @@ let botW=Float64Array.from(bot.mean);
 
 /* ---- rival progression ---- */
 const xpFor=L=>Math.round(12*Math.pow(L-1,1.8));
-function levelOf(xp){let L=1;while(L<50&&xp>=xpFor(L+1))L++;return L}
+function levelOf(xp){let L=1;while(xp>=xpFor(L+1))L++;return L}
 const UNLOCKS=[[5,'uses Hold'],[8,'learns tucks and every spin'],[20,'reads the next piece'],[35,'reads deeper and plans spins ahead']];
-function botOpts(L){return{tucks:L>=8,useHold:L>=5,look:L>=35?6:L>=20?3:0,noise:Math.pow(1-(L-1)/49,1.6)*5,mistake:Math.max(0,0.3-L*0.0065),allMini:S.allMini}}
+function botOpts(L){
+  const t=Math.max(0,L-1);
+  return{
+    tucks:L>=8,
+    useHold:L>=5,
+    look:L>=55?7:L>=35?6:L>=20?3:0,
+    noise:Math.max(0.18,5/Math.pow(1+t/10,0.9)),
+    mistake:Math.max(0.01,0.3*Math.exp(-0.025*t)),
+    allMini:S.allMini
+  }
+}
 function botPps(L){return S.botPps>0?S.botPps:0.45+(L-1)*0.055}
 function tierOf(L){return L>=45?['Prism','#b9f0ff']:L>=30?['Gold','#ffb43a']:L>=15?['Silver','#c9d0e6']:['Bronze','#d08a54']}
 function styleOf(w){const k=E.KEYS;const g=n=>w[k.indexOf(n)];const spin=g('tspin')+g('tslot')*0.6+g('allspin');const quad=g('clear4')+g('well')*2;return spin>quad+0.6?'Spinner':quad>spin+0.6?'Quad hunter':'All-rounder'}
@@ -825,9 +835,18 @@ function processBotResult(botWon){
   // amiibo-style: pick up the opponent's habits
   let note='';
   if(y.pieces>=20){
-    const k=n=>E.KEYS.indexOf(n);
-    const tsr=y.tspins/y.pieces,osr=(y.spins-y.tspins)/y.pieces,qr=y.quads/y.pieces;
-    bot.mean[k('tslot')]+=tsr*2;bot.mean[k('tspin')]+=tsr*2;bot.mean[k('allspin')]+=osr*3;bot.mean[k('clear4')]+=qr*2;
+    const k=n=>E.KEYS.indexOf(n),kd=n=>E.DEF[k(n)];
+    const n=Math.max(1,y.pieces),tsr=y.tspins/n,osr=Math.max(0,y.spins-y.tspins)/n,qr=y.quads/n,pcr=y.pcs/n,atk=y.attack/n;
+    const nudge=(key,target,a)=>{const i=k(key);bot.mean[i]=bot.mean[i]*(1-a)+target*a};
+    nudge('tslot',kd('tslot')+tsr*14+osr*4,0.12);
+    nudge('tspin',kd('tspin')+tsr*16,0.14);
+    nudge('allspin',kd('allspin')+osr*18,0.14);
+    nudge('clear4',kd('clear4')+qr*14,0.14);
+    nudge('well',kd('well')+qr*3.2,0.09);
+    nudge('combo',kd('combo')+Math.min(10,y.maxCombo)*0.2,0.1);
+    nudge('b2b',kd('b2b')+Math.min(12,y.maxB2b)*0.24,0.1);
+    nudge('pc',kd('pc')+pcr*40,0.08);
+    nudge('attack',kd('attack')+atk*5,0.08);
     const bits=[];if(tsr>=0.03)bits.push('T-spins');if(osr>=0.02)bits.push('all-spins');if(qr>=0.03)bits.push('quads');
     if(bits.length)note=`Studied your ${bits.join(' and ')}.`;
     botW=Float64Array.from(bot.mean);
@@ -933,13 +952,13 @@ function renderTrainNote(){
   else el.innerHTML=`Training plays practice games in the background. Each generation tries 8 variations of ${n}'s brain and keeps what sends the most garbage.`;
 }
 function renderCard(){
-  const L=levelOf(bot.xp),lo=xpFor(L),hi=L<50?xpFor(L+1):lo,frac=L<50?(bot.xp-lo)/(hi-lo):1;
+  const L=levelOf(bot.xp),lo=xpFor(L),hi=xpFor(L+1),need=Math.max(1,hi-lo),frac=Math.min(1,Math.max(0,(bot.xp-lo)/need));
   const [tn,tc]=tierOf(L);
   $('#lvNum').textContent=L;
   const ring=$('#ring');ring.style.strokeDasharray=CIRC;ring.style.strokeDashoffset=CIRC*(1-frac);ring.style.stroke=tc;
   const t=$('#tier');t.textContent=tn;t.style.color=tc;
   $('#xpFill').style.width=(frac*100).toFixed(1)+'%';$('#xpFill').style.background=tc;
-  $('#xpTxt').textContent=L<50?`${bot.xp-lo} / ${hi-lo} XP`:'MAX LEVEL';
+  $('#xpTxt').textContent=`${bot.xp-lo} / ${need} XP`;
   if(document.activeElement!==$('#botName'))$('#botName').value=bot.name;
   $('#botWho').textContent=bot.name;$('#botLvTag').textContent=`Lv ${L}`;
   $('#fRec').textContent=`${bot.wins}–${bot.losses}`;
