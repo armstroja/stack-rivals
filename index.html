@@ -485,8 +485,9 @@ function ENGINE(){
       let v=0;for(let e=0;e<EL;e++){const d=res[e].w[i]-m;v+=d*d}
       const sd=Math.sqrt(v/EL);
       nm[i]=0.6*mean[i]+0.4*m;
-      const fl=0.04*Math.abs(DEF[i])+0.02,cap=0.6*Math.abs(DEF[i])+0.3;
-      ns[i]=Math.min(cap,Math.max(fl,0.88*sigma[i]+0.18*sd));
+      const mag=Math.max(0.15,Math.abs(mean[i]),Math.abs(m));
+      const fl=0.02+0.03*mag,cap=0.28+0.62*mag;
+      ns[i]=Math.min(cap,Math.max(fl,0.84*sigma[i]+0.22*sd));
     }
     let eliteApp=0;for(let e=0;e<EL;e++)eliteApp+=res[e].app;eliteApp/=EL;
     return{mean:nm,sigma:ns,baseApp:base.app,baseDied:base.died,eliteApp,bestApp:res[0].app};
@@ -522,7 +523,7 @@ function save(){try{localStorage.setItem(STORE,JSON.stringify({settings:S,bot}))
 const DEF_BINDS={left:['ArrowLeft',''],right:['ArrowRight',''],soft:['ArrowDown',''],hard:['Space',''],cw:['ArrowUp','KeyX'],ccw:['KeyZ','ControlLeft'],r180:['KeyA',''],hold:['KeyC','ShiftLeft'],retry:['KeyR','']};
 const DEF_SET={das:8,arr:2,sdf:31,dcd:1,mess:30,cancelDas:true,preferSoft:true,safeHD:false,irs:'off',smooth:false,allMini:true,ghost:true,botPps:0};
 const ACT_LABEL={left:'Move left',right:'Move right',soft:'Soft drop',hard:'Hard drop',cw:'Rotate clockwise',ccw:'Rotate counter-clockwise',r180:'Rotate 180',hold:'Hold',retry:'Retry'};
-function newBot(){return{name:'PIP',xp:0,mean:E.DEF.slice(),sigma:E.DEF.map(v=>Math.max(0.12,Math.abs(v)*0.25)),gen:0,wins:0,losses:0,matches:0,appHist:[],appEma:null}}
+function newBot(){return{name:'PIP',xp:0,mean:E.KEYS.map(()=>0),sigma:E.KEYS.map(()=>1.1),gen:0,wins:0,losses:0,matches:0,appHist:[],appEma:null}}
 const saved=loadAll();
 const S=Object.assign({},DEF_SET,saved.settings||{});
 {const cl=(v,lo,hi,d)=>typeof v==='number'&&isFinite(v)?Math.min(hi,Math.max(lo,v)):d;S.arr=cl(S.arr,0,5,2);S.das=cl(S.das,1,20,8);S.dcd=cl(S.dcd,0,20,1);S.sdf=cl(S.sdf,5,41,31);S.mess=cl(S.mess,0,100,30);if(S.irs!=='hold')S.irs='off';const sv=+(saved.settings||{}).v||0;if(sv<2){S.smooth=false;S.safeHD=false}
@@ -550,7 +551,18 @@ function botOpts(L){
 }
 function botPps(L){return S.botPps>0?S.botPps:0.45+(L-1)*0.055}
 function tierOf(L){return L>=45?['Prism','#b9f0ff']:L>=30?['Gold','#ffb43a']:L>=15?['Silver','#c9d0e6']:['Bronze','#d08a54']}
-function styleOf(w){const k=E.KEYS;const g=n=>w[k.indexOf(n)];const spin=g('tspin')+g('tslot')*0.6+g('allspin');const quad=g('clear4')+g('well')*2;return spin>quad+0.6?'Spinner':quad>spin+0.6?'Quad hunter':'All-rounder'}
+function styleOf(w){
+  const k=E.KEYS,g=n=>w[k.indexOf(n)];
+  const f=[
+    ['T-spin pressure',g('tspin')+g('tslot')*0.8],
+    ['All-spin routes',g('allspin')],
+    ['Quad pressure',g('clear4')+g('well')*1.4],
+    ['Combo chains',g('combo')+g('attack')*0.35],
+    ['B2B pressure',g('b2b')+g('attack')*0.2],
+    ['Perfect clears',g('pc')]
+  ].sort((a,b)=>b[1]-a[1]);
+  return `Learned: ${f[0][0]}${f[1][1]>f[0][1]-0.35?` + ${f[1][0]}`:''}`;
+}
 
 /* ---- player ---- */
 const game={mode:'menu',vs:true,t:0,gravity:0.02,you:null,bot:null,cd:0};
@@ -834,19 +846,19 @@ function processBotResult(botWon){
   const before=levelOf(bot.xp);bot.xp+=gain;const after=levelOf(bot.xp);
   // amiibo-style: pick up the opponent's habits
   let note='';
-  if(y.pieces>=20){
-    const k=n=>E.KEYS.indexOf(n),kd=n=>E.DEF[k(n)];
+  if(y.pieces>=8){
+    const k=n=>E.KEYS.indexOf(n);
     const n=Math.max(1,y.pieces),tsr=y.tspins/n,osr=Math.max(0,y.spins-y.tspins)/n,qr=y.quads/n,pcr=y.pcs/n,atk=y.attack/n;
     const nudge=(key,target,a)=>{const i=k(key);bot.mean[i]=bot.mean[i]*(1-a)+target*a};
-    nudge('tslot',kd('tslot')+tsr*14+osr*4,0.12);
-    nudge('tspin',kd('tspin')+tsr*16,0.14);
-    nudge('allspin',kd('allspin')+osr*18,0.14);
-    nudge('clear4',kd('clear4')+qr*14,0.14);
-    nudge('well',kd('well')+qr*3.2,0.09);
-    nudge('combo',kd('combo')+Math.min(10,y.maxCombo)*0.2,0.1);
-    nudge('b2b',kd('b2b')+Math.min(12,y.maxB2b)*0.24,0.1);
-    nudge('pc',kd('pc')+pcr*40,0.08);
-    nudge('attack',kd('attack')+atk*5,0.08);
+    nudge('tslot',tsr*22+osr*5,0.16);
+    nudge('tspin',tsr*26,0.18);
+    nudge('allspin',osr*30,0.18);
+    nudge('clear4',qr*24,0.18);
+    nudge('well',qr*4,0.12);
+    nudge('combo',Math.min(12,y.maxCombo)*0.3,0.13);
+    nudge('b2b',Math.min(14,y.maxB2b)*0.35,0.13);
+    nudge('pc',pcr*70,0.1);
+    nudge('attack',atk*7,0.1);
     const bits=[];if(tsr>=0.03)bits.push('T-spins');if(osr>=0.02)bits.push('all-spins');if(qr>=0.03)bits.push('quads');
     if(bits.length)note=`Studied your ${bits.join(' and ')}.`;
     botW=Float64Array.from(bot.mean);
