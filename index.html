@@ -102,6 +102,14 @@ kbd{font:600 11px var(--f-mono);background:var(--panel2);border:1px solid var(--
 .trainBtns{display:flex;gap:8px;flex-wrap:wrap}
 .trainNote{margin:0;font-size:13px;color:var(--muted);min-height:2.6em}
 .trainNote b{color:var(--accent)}
+.eqWrap{display:flex;flex-direction:column;gap:12px}
+.eqHead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font:12px var(--f-mono);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+#eqGraph{display:block;width:100%;height:180px;background:var(--well);border:1px solid var(--line);border-radius:8px}
+.eqGrid{display:flex;flex-direction:column;gap:8px}
+.eqRow{display:grid;grid-template-columns:minmax(0,180px) minmax(0,1fr) 70px;align-items:center;gap:10px}
+.eqRow b{font:700 12px var(--f-mono);color:var(--fg)}
+.eqRow input{width:100%;accent-color:var(--accent)}
+.eqRow output{font:600 12px var(--f-mono);text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
 
 /* Settings */
 .modal{position:fixed;inset:0;z-index:20;background:rgba(5,7,16,.7);display:grid;place-items:center;padding:16px;overflow:auto}
@@ -220,6 +228,7 @@ kbd{font:600 11px var(--f-mono);background:var(--panel2);border:1px solid var(--
       </div>
       <div class="trainBtns">
         <button class="btn primary" id="btnTrain">Start training</button>
+        <button class="btn" id="btnBrain">Brain equalizer</button>
         <button class="btn" id="btnBackup">Back up brain</button>
         <button class="btn ghost" id="btnReset">Reset rival</button>
       </div>
@@ -274,6 +283,18 @@ kbd{font:600 11px var(--f-mono);background:var(--panel2);border:1px solid var(--
     <textarea id="bkText" rows="7" spellcheck="false" aria-label="Brain data"></textarea>
     <div class="ov-actions"><button class="btn" id="bkLoad">Load pasted text</button><button class="btn primary" id="bkConfirm" hidden>Replace rival</button></div>
     <p class="hint" id="bkMsg" role="status"></p>
+  </div>
+</div>
+<div class="modal" id="brainEq" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="eqTitle">
+    <div class="sheet-head"><h2 id="eqTitle">Brain equalizer</h2><button class="btn primary" id="closeEq">Done</button></div>
+    <p class="hint">Watch your rival's weight graph and tune how strongly each action is favored.</p>
+    <div class="eqWrap">
+      <div class="eqHead"><span>Action weights</span><b id="eqScaleTxt">±4.0</b></div>
+      <svg id="eqGraph" viewBox="0 0 760 180" preserveAspectRatio="none" aria-label="Brain weight graph"></svg>
+      <div class="eqGrid" id="eqGrid"></div>
+    </div>
+    <div class="sheet-foot"><button class="btn ghost" id="eqReset">Reset to trained values</button></div>
   </div>
 </div>
 <div class="toast" id="toast" hidden></div>
@@ -528,6 +549,7 @@ function save(){try{localStorage.setItem(STORE,JSON.stringify({settings:S,bot}))
 const DEF_BINDS={left:['ArrowLeft',''],right:['ArrowRight',''],soft:['ArrowDown',''],hard:['Space',''],cw:['ArrowUp','KeyX'],ccw:['KeyZ','ControlLeft'],r180:['KeyA',''],hold:['KeyC','ShiftLeft'],retry:['KeyR','']};
 const DEF_SET={das:8,arr:2,sdf:31,dcd:1,mess:30,cancelDas:true,preferSoft:true,safeHD:false,irs:'off',smooth:false,allMini:true,ghost:true,botPps:0};
 const ACT_LABEL={left:'Move left',right:'Move right',soft:'Soft drop',hard:'Hard drop',cw:'Rotate clockwise',ccw:'Rotate counter-clockwise',r180:'Rotate 180',hold:'Hold',retry:'Retry'};
+const KEY_LABELS={holes:'Avoid holes',holeDepth:'Shallow holes',bump:'Flat surface',bump2:'Smooth terrain',avgH:'Low stack',maxH:'No spikes',danger:'Escape danger',rowTrans:'Calm rows',colTrans:'Calm columns',well:'Tall well',extraWells:'Single well',tslot:'T-slot shape',clear1:'Singles',clear2:'Doubles',clear3:'Triples',clear4:'Quads',tspin:'T-spins',mini:'Minis',allspin:'All-spins',attack:'Attack power',b2b:'B2B chain',combo:'Combos',pc:'Perfect clears'};
 function newBot(){return{name:'PIP',xp:0,mean:E.KEYS.map(()=>0),sigma:E.KEYS.map(()=>1.1),gen:0,wins:0,losses:0,matches:0,appHist:[],appEma:null}}
 const saved=loadAll();
 const S=Object.assign({},DEF_SET,saved.settings||{});
@@ -538,6 +560,8 @@ if(saved.settings&&saved.settings.binds)for(const a in DEF_BINDS)if(Array.isArra
 let bot=Object.assign(newBot(),saved.bot||{});
 if(!Array.isArray(bot.mean)||bot.mean.length!==E.KEYS.length){const n=bot.name;bot=newBot();bot.name=n||'PIP'}
 let botW=Float64Array.from(bot.mean);
+let brainBase=bot.mean.slice();
+const captureBrainBase=()=>{brainBase=bot.mean.slice()};
 
 /* ---- rival progression ---- */
 const xpFor=L=>Math.round(12*Math.pow(L-1,1.8));
@@ -805,7 +829,7 @@ addEventListener('keydown',e=>{
   if(tg&&(tg.tagName==='INPUT'&&tg.type!=='range'&&tg.type!=='radio'&&tg.type!=='checkbox'||tg.tagName==='TEXTAREA'))return;
   if(e.code==='Escape'){e.preventDefault();onEscape();return}
   const a=codeMap[e.code];if(!a)return;
-  if(!$('#modal').hidden||!$('#backup').hidden)return;
+  if(!$('#modal').hidden||!$('#backup').hidden||!$('#brainEq').hidden)return;
   e.preventDefault();if(e.repeat)return;
   actDown(a);
 });
@@ -836,6 +860,7 @@ function goNow(){
 function pause(){if(game.mode!=='play')return;game.mode='paused';showPaused()}
 function resume(){if(game.mode!=='paused')return;game.mode='play';ov.hidden=true;if(document.activeElement&&document.activeElement.blur)document.activeElement.blur()}
 function onEscape(){
+  if(!$('#brainEq').hidden){closeEqualizer();return}
   if(!$('#backup').hidden){closeBackup();return}
   if(!$('#modal').hidden){closeSettings();return}
   if(game.mode==='play')pause();else if(game.mode==='paused')resume();
@@ -878,6 +903,7 @@ function processBotResult(botWon){
     botW=Float64Array.from(bot.mean);
   }
   reflectLeft+=2;requestGen();
+  captureBrainBase();
   save();renderCard();
   return{gain,before,after,note};
 }
@@ -889,6 +915,7 @@ function processSelfPlayResult(youWon){
   botW=Float64Array.from(bot.mean);
   bot.xp+=gain;
   reflectLeft+=2;requestGen();
+  captureBrainBase();
   save();renderCard();
 }
 
@@ -966,13 +993,14 @@ function onGen(e){
   if(reflectLeft>0)reflectLeft--;
   const before=levelOf(bot.xp);bot.xp+=18;const after=levelOf(bot.xp);
   if(after>before&&game.mode!=='over')levelToast(before,after);
+  captureBrainBase();
   save();renderCard();requestGen();
 }
 $('#btnTrain').onclick=()=>{training=!training;renderCard();requestGen()};
 let resetArm=0;
 $('#btnReset').onclick=e=>{
   const b=e.currentTarget;
-  if(Date.now()-resetArm<3000){const n=bot.name;bot=newBot();bot.name=n;botW=Float64Array.from(bot.mean);training=false;reflectLeft=0;save();renderCard();b.textContent='Reset rival';b.classList.remove('warn');resetArm=0;toast(`${n} is back to Lv 1`);return}
+  if(Date.now()-resetArm<3000){const n=bot.name;bot=newBot();bot.name=n;botW=Float64Array.from(bot.mean);training=false;reflectLeft=0;captureBrainBase();save();renderCard();b.textContent='Reset rival';b.classList.remove('warn');resetArm=0;toast(`${n} is back to Lv 1`);return}
   resetArm=Date.now();b.textContent='Click again to wipe';b.classList.add('warn');
   setTimeout(()=>{if(Date.now()-resetArm>=2900){b.textContent='Reset rival';b.classList.remove('warn')}},3000);
 };
@@ -1007,7 +1035,7 @@ function renderCard(){
   $('#btnTrain').textContent=training?'Stop training':'Start training';
   $('#btnTrain').classList.toggle('primary',!training);
   $('#youRec').textContent=bot.matches?`${bot.losses}–${bot.wins} vs ${bot.name}`:'';
-  drawSpark();renderTrainNote();
+  drawSpark();renderTrainNote();syncEqualizer();
 }
 function drawSpark(){
   const svg=$('#spark'),h=bot.appHist;
@@ -1073,10 +1101,78 @@ $('#bkLoad').onclick=()=>stageImport($('#bkText').value);
 $('#bkConfirm').onclick=()=>{
   if(!pendingBrain)return;
   bot=pendingBrain;pendingBrain=null;botW=Float64Array.from(bot.mean);training=false;reflectLeft=0;
+  captureBrainBase();
   save();renderCard();if(game.mode==='menu')showMenu();
   $('#bkConfirm').hidden=true;$('#bkText').value=brainJSON();bkMsg(`Loaded ${bot.name}, Lv ${levelOf(bot.xp)}.`);
 };
 $('#bkText').addEventListener('keydown',e=>e.stopPropagation());
+
+/* ---- brain equalizer ---- */
+let eqSpan=4;
+const eqLabel=k=>KEY_LABELS[k]||k;
+function eqFmt(v){return(v>=0?'+':'')+v.toFixed(2)}
+function getEqSpan(){return Math.max(4,Math.ceil(Math.max(1,...bot.mean.map(v=>Math.abs(v)))*1.25))}
+function renderEqGraph(){
+  const svg=$('#eqGraph'),keys=E.KEYS,n=keys.length,w=760,h=180,mid=h/2,step=w/n,pad=Math.max(3,step*0.12),barW=Math.max(6,step-pad*2);
+  const line=`<line x1="0" x2="${w}" y1="${mid}" y2="${mid}" stroke="${C.line}" stroke-width="1.5"/>`;
+  let bars='';
+  for(let i=0;i<n;i++){
+    const v=Math.max(-eqSpan,Math.min(eqSpan,bot.mean[i]));
+    const bh=Math.abs(v)/eqSpan*(h/2-10),x=i*step+pad,y=v>=0?mid-bh:mid,c=v>=0?C.accent:C.danger;
+    bars+=`<rect id="eqb-${i}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${barW.toFixed(2)}" height="${Math.max(2,bh).toFixed(2)}" rx="2" fill="${c}"><title>${eqLabel(keys[i])}: ${eqFmt(bot.mean[i])}</title></rect>`;
+  }
+  svg.innerHTML=line+bars;
+}
+function syncEqualizer(){
+  const modal=$('#brainEq');if(modal.hidden)return;
+  const span=getEqSpan();
+  if(span!==eqSpan){renderEqualizer();return}
+  $('#eqScaleTxt').textContent=`±${eqSpan.toFixed(1)}`;
+  for(let i=0;i<E.KEYS.length;i++){
+    const v=bot.mean[i],out=$('#eqo-'+i),sl=$('#eq-'+i),bar=$('#eqb-'+i);
+    if(out)out.textContent=eqFmt(v);
+    if(sl&&document.activeElement!==sl)sl.value=String(v);
+    if(bar){
+      const mid=90,bh=Math.abs(Math.max(-eqSpan,Math.min(eqSpan,v)))/eqSpan*80;
+      bar.setAttribute('y',String(v>=0?mid-bh:mid));
+      bar.setAttribute('height',String(Math.max(2,bh)));
+      bar.setAttribute('fill',v>=0?C.accent:C.danger);
+      bar.innerHTML=`<title>${eqLabel(E.KEYS[i])}: ${eqFmt(v)}</title>`;
+    }
+  }
+}
+function renderEqualizer(){
+  eqSpan=getEqSpan();
+  $('#eqScaleTxt').textContent=`±${eqSpan.toFixed(1)}`;
+  const keys=E.KEYS;
+  $('#eqGrid').innerHTML=keys.map((k,i)=>`<label class="eqRow"><b>${esc(eqLabel(k))}</b><input type="range" id="eq-${i}" min="${-eqSpan}" max="${eqSpan}" step="0.05" value="${bot.mean[i]}"><output id="eqo-${i}">${eqFmt(bot.mean[i])}</output></label>`).join('');
+  $('#eqGrid').querySelectorAll('input').forEach((el,i)=>{
+    el.addEventListener('keydown',e=>e.stopPropagation());
+    el.oninput=()=>{
+      bot.mean[i]=Math.max(-eqSpan,Math.min(eqSpan,+el.value));
+      botW=Float64Array.from(bot.mean);
+      $('#eqo-'+i).textContent=eqFmt(bot.mean[i]);
+      save();renderCard();
+    };
+  });
+  renderEqGraph();
+}
+function openEqualizer(){
+  if(game.mode==='play')pause();
+  renderEqualizer();
+  $('#brainEq').hidden=false;
+  $('#closeEq').focus();
+}
+function closeEqualizer(){$('#brainEq').hidden=true}
+$('#btnBrain').onclick=openEqualizer;
+$('#closeEq').onclick=closeEqualizer;
+$('#brainEq').addEventListener('click',e=>{if(e.target.id==='brainEq')closeEqualizer()});
+$('#eqReset').onclick=()=>{
+  bot.mean=brainBase.slice();
+  botW=Float64Array.from(bot.mean);
+  save();renderCard();syncEqualizer();
+  toast('Brain weights reset to trained values.');
+};
 
 /* ---- settings ---- */
 const fms=v=>`${v.toFixed(1)}F (${Math.round(v*FRAME)}ms)`;
